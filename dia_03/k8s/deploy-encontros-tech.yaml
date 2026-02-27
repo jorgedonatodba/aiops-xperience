@@ -1,0 +1,130 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: encontros-tech
+---
+# Secrets (devem ser criados primeiro)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secrets
+  namespace: encontros-tech
+type: Opaque
+stringData:
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres123
+  POSTGRES_DB: encontros_tech
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: encontros-tech-secrets
+  namespace: encontros-tech
+type: Opaque
+stringData:
+  DATABASE_URL: postgresql://postgres:postgres123@postgres-service:5432/encontros
+---
+# PostgreSQL
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: encontros-tech
+  labels:
+    app: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:16
+        resources: {}
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secrets
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secrets
+              key: POSTGRES_PASSWORD
+        - name: POSTGRES_DB
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secrets
+              key: POSTGRES_DB
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+  namespace: encontros-tech
+  labels:
+    app: postgres
+spec:
+  selector:
+    app: postgres
+  ports:
+  - protocol: TCP
+    port: 5432
+    targetPort: 5432
+  type: ClusterIP
+---
+# Aplicação
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: encontros-tech-app
+  namespace: encontros-tech
+  labels:
+    app: encontros-tech
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: encontros-tech
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+      labels:
+        app: encontros-tech
+    spec:
+      containers:
+      - name: encontros-tech
+        image: fabricioveronez/encontros-tech-labs:v1
+        resources: {}
+        ports:
+        - containerPort: 8000
+        envFrom:
+        - secretRef:
+            name: encontros-tech-secrets
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: encontros-tech-service
+  namespace: encontros-tech
+  labels:
+    app: encontros-tech
+spec:
+  selector:
+    app: encontros-tech
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8000
+  type: LoadBalancer

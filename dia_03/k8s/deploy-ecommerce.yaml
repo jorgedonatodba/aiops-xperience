@@ -1,0 +1,164 @@
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecommerce
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: ecommerce  
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+        prometheus.io/path: "/metrics"
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_USER
+          value: "ecommerce"
+        - name: POSTGRES_PASSWORD
+          value: "Pg1234"
+        - name: POSTGRES_DB
+          value: "ecommerce"
+        resources: {}
+        livenessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - ecommerce
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command:
+            - pg_isready
+            - -U
+            - ecommerce
+          initialDelaySeconds: 5
+          periodSeconds: 5
+
+---
+# Service PostgreSQL
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: ecommerce
+spec:
+  type: ClusterIP
+  ports:
+  - port: 5432
+    targetPort: 5432
+    protocol: TCP
+  selector:
+    app: postgres
+
+---
+# Service Postgres Exporter
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-exporter
+  namespace: ecommerce  
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 9187
+    protocol: TCP
+    name: metrics
+  selector:
+    app: postgres
+---
+# Deployment Aplicação Flask
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app
+  namespace: ecommerce
+spec:
+  replicas: 20
+  selector:
+    matchLabels:
+      app: ecommerce-app
+  template:
+    metadata:
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "5000"
+        prometheus.io/path: "/metrics"
+      labels:
+        app: ecommerce-app
+    spec:
+      containers:
+      - name: app
+        image: fabricioveronez/fake-shop-web:v1
+        ports:
+        - containerPort: 5000
+        env:
+        - name: DB_HOST
+          value: "postgres"
+        - name: DB_USER
+          value: "ecommerce"
+        - name: DB_PASSWORD
+          value: "Pg1234"
+        - name: DB_NAME
+          value: "ecommerce"
+        - name: DB_PORT
+          value: "5432"
+        - name: FLASK_APP
+          value: "index.py"
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "256Mi"
+            cpu: "250m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 5000
+          initialDelaySeconds: 60
+          periodSeconds: 30
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 5000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+      
+      restartPolicy: Always
+
+---
+# Service Aplicação Flask
+apiVersion: v1
+kind: Service
+metadata:
+  name: app
+  namespace: ecommerce
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 5000
+    protocol: TCP
+    name: http
+  selector:
+    app: ecommerce-app
